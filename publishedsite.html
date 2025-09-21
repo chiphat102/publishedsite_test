@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Calculator</title>
+  <style>
+    :root{
+      --bg:#0f172a;
+      --panel:#111827;
+      --accent:#06b6d4;
+      --btn:#1f2937;
+      --btn-hover:#374151;
+      --op:#ef4444;
+      color-scheme: dark;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    }
+    html,body{height:100%;margin:0;background:linear-gradient(180deg,var(--bg),#020617);display:grid;place-items:center}
+    .calculator{width:360px;max-width:95vw;background:linear-gradient(180deg,var(--panel),#0b1220);border-radius:12px;padding:18px;box-shadow:0 8px 30px rgba(2,6,23,.6)}
+    .screen{background:rgba(255,255,255,0.03);padding:12px;border-radius:8px;color:#e6eef8;display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .display{font-size:28px;text-align:right;min-height:40px;word-break:break-all}
+    .expr{font-size:14px;opacity:.65;text-align:right}
+    .keys{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+    button{background:var(--btn);border:0;padding:14px;border-radius:8px;font-size:18px;color:#e6eef8;cursor:pointer;user-select:none}
+    button:active{transform:translateY(1px)}
+    button[data-type="op"]{background:linear-gradient(180deg,var(--op),#b91c1c)}
+    button[data-type="fn"]{background:linear-gradient(180deg,#374151,var(--btn-hover));font-weight:600}
+    .wide{grid-column:span 2}
+    .history{margin-top:12px;background:rgba(255,255,255,0.02);padding:10px;border-radius:8px;max-height:120px;overflow:auto;font-size:13px;color:#cfe5ef}
+    .history-item{padding:6px 8px;border-radius:6px;display:flex;justify-content:space-between;gap:10px}
+    .history-item:nth-child(odd){background:rgba(255,255,255,0.01)}
+    .small{font-size:12px;opacity:.7}
+    .controls{display:flex;gap:8px;margin-bottom:8px}
+    .controls button{flex:1}
+    @media (max-width:420px){.calculator{padding:12px}}
+  </style>
+</head>
+<body>
+  <main class="calculator" role="application" aria-label="Calculator">
+    <div class="screen">
+      <div id="expr" class="expr" aria-hidden="true"></div>
+      <div id="display" class="display" role="textbox" aria-live="polite" aria-label="Calculator display">0</div>
+    </div>
+
+    <div class="controls">
+      <button id="copyBtn" class="small" title="Copy result to clipboard" aria-label="Copy result">Copy</button>
+      <button id="clearBtn" class="small" title="Clear" aria-label="Clear">C</button>
+      <button id="backBtn" class="small" title="Backspace" aria-label="Backspace">⌫</button>
+      <button id="toggleSign" class="small" title="Toggle sign" aria-label="Toggle sign">±</button>
+    </div>
+
+    <div class="keys" role="group" aria-label="Calculator keys">
+      <button data-type="fn">%</button>
+      <button data-type="fn">(</button>
+      <button data-type="fn">)</button>
+      <button data-type="op">÷</button>
+
+      <button>7</button>
+      <button>8</button>
+      <button>9</button>
+      <button data-type="op">×</button>
+
+      <button>4</button>
+      <button>5</button>
+      <button>6</button>
+      <button data-type="op">−</button>
+
+      <button>1</button>
+      <button>2</button>
+      <button>3</button>
+      <button data-type="op">+</button>
+
+      <button class="wide">0</button>
+      <button>.</button>
+      <button data-type="op">=</button>
+    </div>
+
+    <section class="history" aria-label="Calculation history">
+      <div class="small">History</div>
+      <div id="historyList" aria-live="polite"></div>
+    </section>
+  </main>
+
+  <script>
+    // Calculator logic
+    const display = document.getElementById('display');
+    const exprDiv = document.getElementById('expr');
+    const historyList = document.getElementById('historyList');
+
+    let current = '';
+    let expression = '';
+    const history = [];
+
+    // Helpers
+    function render(){
+      display.textContent = current || '0';
+      exprDiv.textContent = expression;
+    }
+
+    function pushHistory(e, r){
+      history.unshift({expr:e, result:r});
+      if(history.length>20) history.pop();
+      refreshHistory();
+    }
+
+    function refreshHistory(){
+      historyList.innerHTML = '';
+      for(const item of history){
+        const row = document.createElement('div');
+        row.className = 'history-item';
+        row.innerHTML = `<div class="small">${escapeHtml(item.expr)}</div><div class="small">${escapeHtml(item.result)}</div>`;
+        historyList.appendChild(row);
+      }
+    }
+
+    function escapeHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+    // Button handling
+    document.querySelectorAll('.keys button').forEach(btn=>{
+      btn.addEventListener('click', ()=>handleInput(btn.textContent.trim()));
+    });
+
+    document.getElementById('clearBtn').addEventListener('click', ()=>{current='';expression='';render();});
+    document.getElementById('backBtn').addEventListener('click', ()=>{current = current.slice(0,-1); render();});
+    document.getElementById('copyBtn').addEventListener('click', async ()=>{
+      try{ await navigator.clipboard.writeText(display.textContent); alert('Copied: ' + display.textContent); }catch(e){ alert('Copy failed'); }
+    });
+    document.getElementById('toggleSign').addEventListener('click', ()=>{
+      if(!current) return;
+      if(current.startsWith('-')) current = current.slice(1); else current = '-' + current;
+      render();
+    });
+
+    // Keyboard support
+    window.addEventListener('keydown', (e)=>{
+      if(e.key === 'Enter') { e.preventDefault(); handleInput('='); }
+      else if(e.key === 'Backspace'){ handleInput('⌫'); }
+      else if(e.key === 'Escape'){ handleInput('C'); }
+      else if(e.key === '%') handleInput('%');
+      else if(['+','-','/','*','(',')','.'].includes(e.key)) handleInput(e.key);
+      else if(/\d/.test(e.key)) handleInput(e.key);
+    });
+
+    function handleInput(key){
+      if(key === 'C') { current=''; expression=''; render(); return; }
+      if(key === '⌫') { current = current.slice(0,-1); render(); return; }
+      if(key === '=') { evaluate(); return; }
+      if(key === '×') key='*';
+      if(key === '÷') key='/';
+      if(key === '−') key='-';
+
+      if(key === '%'){
+        // convert current number to percent
+        if(!current) return;
+        const num = parseFloat(current);
+        if(isNaN(num)) return;
+        current = String(num/100);
+        render();
+        return;
+      }
+
+      if(key === '+/-' || key === '±'){
+        if(!current) return;
+        current = current.startsWith('-') ? current.slice(1) : '-' + current;
+        render();
+        return;
+      }
+
+      // If operator pressed and there's a current number, push it to expression
+      if(['+','-','*','/','(' , ')'].includes(key)){
+        if(current || key === '(' || key === ')'){
+          expression += (current || '') + key;
+          current = '';
+        }
+        render();
+        return;
+      }
+
+      // decimal point
+      if(key === '.'){
+        if(current.includes('.')) return; // prevent multiple dots
+        current = current ? current + '.' : '0.';
+        render();
+        return;
+      }
+
+      // digits
+      if(/^[0-9]$/.test(key)){
+        if(current === '0') current = key; else current += key;
+        render();
+        return;
+      }
+    }
+
+    function evaluate(){
+      // finalize expression
+      const exprToEval = (expression + (current||'')).replace(/×/g,'*').replace(/÷/g,'/');
+      if(!exprToEval) return;
+
+      // Replace occurrences of n% with (n/100)
+      const expanded = exprToEval.replace(/(\d+(?:\.\d+)?)%/g, '($1/100)');
+
+      // allow only safe characters
+      const safeRegex = /^[0-9+\-*/().\s]+$/;
+      if(!safeRegex.test(expanded)){
+        display.textContent = 'Error';
+        return;
+      }
+
+      try{
+        // Using the Function constructor is slightly safer than eval here; we still validate characters above.
+        const result = Function('return ' + expanded)();
+        const normalized = Number(result);
+        const final = (Number.isFinite(normalized) ? normalized : 'Error');
+        pushHistory(exprToEval, final);
+        current = String(final);
+        expression = '';
+        render();
+      }catch(err){
+        display.textContent = 'Error';
+      }
+    }
+
+    // initial render
+    render();
+  </script>
+</body>
+</html>
